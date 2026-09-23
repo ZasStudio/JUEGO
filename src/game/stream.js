@@ -6,6 +6,7 @@ import { INTERNET, RESOLUTIONS, peripheral, DECO_BY_ID } from '../data/items.js'
 import { viewerName, nameColor, genericMessage, trollMessage, donationMessage, QUESTIONS } from '../data/chat.js';
 import { sim, mood } from './sim.js';
 import { sfx } from '../core/audio.js';
+import { botsAfterStream } from './extras.js';
 
 export function setupScore() {
   let s = 0;
@@ -75,6 +76,8 @@ export class StreamSession {
       S.collab = null;
     }
     this.announced = S.social.announceUntil > now();
+    this.bots = S.bots.pending || 0;
+    this.petT = 0;
     sim.streaming = true;
   }
 
@@ -119,7 +122,7 @@ export class StreamSession {
     const loyal = F * 0.026 + S.stats.subs * 0.25;
     const browse = (4 + F * 0.012) * f.disc * 2.2;
     let t = (loyal + browse) * f.qPC * f.res * f.cam * f.mic * f.setup * f.mood * f.time * f.announce * f.title * f.hype * f.charisma * f.hygiene;
-    return Math.max(0.5, t + this.bonusPool);
+    return Math.max(0.5, t + this.bonusPool + this.bots * (this.minutes < 5 ? this.minutes / 5 : 1));
   }
 
   // Se llama cada minuto de juego
@@ -143,15 +146,16 @@ export class StreamSession {
     this.hype = clamp(this.hype, 0, 100);
 
     // Seguidores
-    const followRate = v * 0.013 * (0.5 + this.hype / 100) * (S.stats.followers < 100 ? 1.6 : 1) * (1 + skill('charisma') * 0.04);
+    const real = Math.max(0, v - this.bots);
+    const followRate = real * 0.013 * (0.5 + this.hype / 100) * (S.stats.followers < 100 ? 1.6 : 1) * (1 + skill('charisma') * 0.04);
     this.fAcc += followRate;
     while (this.fAcc >= 1) { this.fAcc -= 1; this.newFollower(); }
     if (S.flags.affiliate) {
-      this.sAcc += v * 0.0011 * (0.5 + this.hype / 100);
+      this.sAcc += real * 0.0011 * (0.5 + this.hype / 100);
       while (this.sAcc >= 1) { this.sAcc -= 1; this.newSub(); }
     }
     // Donaciones
-    if (v >= 1 && chance(Math.min(0.3, 0.002 + v * 0.0025) * (0.5 + this.hype / 100))) this.newDonation();
+    if (real >= 1 && chance(Math.min(0.3, 0.002 + real * 0.0025) * (0.5 + this.hype / 100))) this.newDonation();
     // Trolls
     if (v >= 2 && chance(0.025 + v * 0.0006)) this.newTroll();
     // Preguntas del chat
@@ -159,6 +163,15 @@ export class StreamSession {
     // Raids
     if (v >= 4 && chance(0.0035 * (0.5 + this.hype / 60))) this.newRaid();
 
+    // Mascota en cámara
+    if (S.pet && chance(0.012)) {
+      this.alert('pet', `🐾 ¡${S.pet.name} apareció en cámara!`, 'El chat se derrite');
+      this.pushChat({ user: 'chat', color: '#ff9ff3', text: `AWWW ${S.pet.name.toUpperCase()} 😻😻` });
+      this.hype = clamp(this.hype + 6 + S.pet.happy / 20, 0, 100);
+      this.moment('chat');
+    }
+    // Chat de bots (sospechoso)
+    if (this.bots && chance(0.05)) this.pushChat({ user: viewerName() + '_bot', color: '#888', text: pick(['nice stream', 'good game', 'wow', 'hello']) });
     // Temperatura y fallos
     const temp = cpuTemp(S.pc.parts, S.pc.paste, S.pc.dust, 0.55 + this.game.req / 200);
     this.temp = temp;
@@ -393,9 +406,10 @@ export class StreamSession {
     }
     if (this.minutes >= 30) S.stats.streams += 1;
     S.social.announceUntil = 0;
+    const botResult = this.bots ? botsAfterStream(this.bots) : null;
     this.summary = {
       minutes: this.minutes, avg: Math.round(avg), peak: this.peak, followers: this.followers, subs: this.subs,
-      donations: this.donations, ads: this.adMoney, crashed: this.crashed, game: this.game.name,
+      donations: this.donations, ads: this.adMoney, crashed: this.crashed, game: this.game.name, bots: this.bots, botResult,
     };
     bus.emit('stream:end', this.summary);
   }

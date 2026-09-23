@@ -1,7 +1,8 @@
 // Apartamento 3D del streamer: habitaciones, muebles, colisiones, interacciones y elementos dinámicos.
 import * as THREE from 'three';
-import { mat, glow, box, cyl, sphere, woodTex, tileTex, noiseTex, textPlane, aabb, canvasTex } from './util.js';
+import { mat, glow, box, cyl, sphere, textPlane, aabb, canvasTex, worldUV } from './util.js';
 import { buildPCModel, spinFans } from './pcmodel.js';
+import { pbr, withRepeat } from './textures.js';
 import { Character } from './character.js';
 
 const WALL_H = 2.8;
@@ -29,13 +30,17 @@ export class Apartment {
     const sorted = [...gaps].sort((a, b) => a[0] - b[0]);
     for (const [a, b] of sorted) { if (a > cur) segs.push([cur, a]); cur = b; }
     if (cur < to) segs.push([cur, to]);
-    const m = mat(color, { unique: true, roughness: 0.95, transparent: true, opacity: 1 });
+    const tiled = color === '#bfe0e8';
+    const m = tiled ? pbr('tiles', { color, tiles: 8, unique: true }) : pbr('plaster', { color, unique: true });
+    const unit = tiled ? 1.4 : 2.5;
+    m.transparent = true; m.opacity = 1;
     const meshes = [];
     for (const [a, b] of segs) {
       const len = b - a, mid = (a + b) / 2;
       const mesh = axis === 'z'
         ? box(len, h, 0.2, m, mid, h / 2, pos, this.group)
         : box(0.2, h, len, m, pos, h / 2, mid, this.group);
+      worldUV(mesh, unit);
       meshes.push(mesh);
       if (axis === 'z') this.addCol(a, pos - 0.12, b, pos + 0.12); else this.addCol(pos - 0.12, a, pos + 0.12, b);
     }
@@ -43,6 +48,7 @@ export class Apartment {
     for (const [a, b] of sorted) {
       const len = b - a, mid = (a + b) / 2;
       const mesh = axis === 'z' ? box(len, h - 2.2, 0.2, m, mid, 2.2 + (h - 2.2) / 2, pos, this.group) : box(0.2, h - 2.2, len, m, pos, 2.2 + (h - 2.2) / 2, mid, this.group);
+      worldUV(mesh, unit);
       meshes.push(mesh);
     }
     this.walls.push({ axis, pos, min: from, max: to, mat: m, meshes });
@@ -53,14 +59,11 @@ export class Apartment {
   build() {
     const G = this.group;
     // ---------- Piso ----------
-    const wt = woodTex(); wt.repeat.set(4, 3);
-    const floor = new THREE.Mesh(new THREE.PlaneGeometry(16, 12), new THREE.MeshStandardMaterial({ map: wt, roughness: 0.55, metalness: 0.05 }));
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(16, 12), pbr('wood', { repeat: [5, 4] }));
     floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; G.add(floor);
-    const tt = tileTex('#eef3f6', '#b9c6cf', 10); tt.repeat.set(2, 2);
-    const bathFloor = new THREE.Mesh(new THREE.PlaneGeometry(3.5, 3.5), new THREE.MeshStandardMaterial({ map: tt, roughness: 0.3 }));
+    const bathFloor = new THREE.Mesh(new THREE.PlaneGeometry(3.5, 3.5), pbr('tiles', { color: '#eef3f6', repeat: [2, 2], tiles: 6 }));
     bathFloor.rotation.x = -Math.PI / 2; bathFloor.position.set(6.25, 0.005, 4.25); bathFloor.receiveShadow = true; G.add(bathFloor);
-    const kt = tileTex('#2d2d38', '#3a3a48', 6); kt.repeat.set(3, 2);
-    const kitFloor = new THREE.Mesh(new THREE.PlaneGeometry(5, 3.4), new THREE.MeshStandardMaterial({ map: kt, roughness: 0.4 }));
+    const kitFloor = new THREE.Mesh(new THREE.PlaneGeometry(5, 3.4), pbr('tiles', { color: '#3f3f4f', repeat: [3, 2], tiles: 4 }));
     kitFloor.rotation.x = -Math.PI / 2; kitFloor.position.set(-5.5, 0.004, 4.3); kitFloor.receiveShadow = true; G.add(kitFloor);
 
     // Suelo exterior oscuro
@@ -157,7 +160,7 @@ export class Apartment {
     const G = this.group;
     const dx = -5, dz = -5.55;
     const desk = new THREE.Group(); desk.position.set(dx, 0, dz); G.add(desk);
-    const top = mat('#1f1f26', { roughness: 0.35, metalness: 0.2 });
+    const top = pbr('darkwood', { rows: 4 });
     box(1.9, 0.05, 0.8, top, 0, 0.75, 0, desk);
     box(0.05, 0.75, 0.7, mat('#111'), -0.9, 0.375, 0, desk); box(0.05, 0.75, 0.7, mat('#111'), 0.9, 0.375, 0, desk);
     box(1.9, 0.004, 0.02, glow('#8a2be2', 2), 0, 0.73, 0.4, desk).userData.led = true;
@@ -308,7 +311,7 @@ export class Apartment {
     const G = this.group;
     const bx = -0.5, bz = -5.5;
     const b = new THREE.Group(); b.position.set(bx, 0, bz); G.add(b);
-    box(2.2, 0.06, 0.9, mat('#8b6b4a', { roughness: 0.6 }), 0, 0.9, 0, b);
+    box(2.2, 0.06, 0.9, pbr('wood', { rows: 3 }), 0, 0.9, 0, b);
     for (const [x, z] of [[-1.05, -0.4], [1.05, -0.4], [-1.05, 0.4], [1.05, 0.4]]) box(0.06, 0.9, 0.06, mat('#333'), x, 0.45, z, b);
     box(2.1, 0.03, 0.8, mat('#555'), 0, 0.3, 0, b);
     box(1.0, 0.004, 0.6, mat('#1e5fa8', { roughness: 0.9 }), -0.1, 0.934, 0.05, b); // tapete antiestático
@@ -339,23 +342,23 @@ export class Apartment {
   buildBedroom() {
     const G = this.group;
     const bed = new THREE.Group(); bed.position.set(6.2, 0, -4.95); G.add(bed);
-    box(1.7, 0.35, 2.15, mat('#5a4030'), 0, 0.18, 0, bed);
+    box(1.7, 0.35, 2.15, pbr('darkwood'), 0, 0.18, 0, bed);
     box(1.6, 0.22, 2.0, mat('#f5f5f5', { roughness: 1 }), 0, 0.46, 0.02, bed);
-    box(1.62, 0.1, 1.3, mat('#4a69bd', { roughness: 1 }), 0, 0.6, 0.35, bed);
+    box(1.62, 0.1, 1.3, pbr('fabric', { color: '#4a69bd', repeat: [3, 3] }), 0, 0.6, 0.35, bed);
     box(0.6, 0.14, 0.35, mat('#ffffff', { roughness: 1 }), -0.4, 0.64, -0.75, bed);
     box(0.6, 0.14, 0.35, mat('#ffffff', { roughness: 1 }), 0.4, 0.64, -0.75, bed);
-    box(1.7, 1.0, 0.1, mat('#5a4030'), 0, 0.5, -1.07, bed);
+    box(1.7, 1.0, 0.1, pbr('darkwood'), 0, 0.5, -1.07, bed);
     this.bedPos = new THREE.Vector3(6.2, 0.6, -5.2);
     this.addCol(5.3, -6, 7.1, -3.85);
     this.addInt('bed', 5.8, -3.4, 'Dormir', 1.0);
     // Mesa de noche + lámpara
-    box(0.5, 0.5, 0.45, mat('#6d4c33'), 7.55, 0.25, -5.6, G);
+    box(0.5, 0.5, 0.45, pbr('darkwood'), 7.55, 0.25, -5.6, G);
     cyl(0.05, 0.08, 0.3, mat('#ddd'), 7.55, 0.65, -5.6, G, 12);
     cyl(0.14, 0.18, 0.2, glow('#ffd28a', 0.8), 7.55, 0.88, -5.6, G, 16);
     this.addCol(7.3, -5.85, 7.8, -5.35);
     // Armario
     const wd = new THREE.Group(); wd.position.set(7.6, 0, -2.5); G.add(wd);
-    box(0.6, 2.1, 1.3, mat('#8a6a4f'), 0, 1.05, 0, wd);
+    box(0.6, 2.1, 1.3, pbr('wood', { rows: 3 }), 0, 1.05, 0, wd);
     box(0.02, 1.9, 0.01, mat('#3a2a1a'), -0.31, 1.05, 0, wd);
     sphere(0.03, mat('#d4af37', { metalness: 0.9 }), -0.32, 1.05, 0.1, wd); sphere(0.03, mat('#d4af37', { metalness: 0.9 }), -0.32, 1.05, -0.1, wd);
     this.addCol(7.25, -3.2, 7.95, -1.8);
@@ -401,8 +404,8 @@ export class Apartment {
     this.addCol(-7.95, 5.1, -7.05, 6);
     this.addInt('fridge', -7.4, 4.5, 'Nevera (comer)', 0.9);
     // Encimera
-    const ct = mat('#f0ede6', { roughness: 0.3 });
-    box(3.2, 0.9, 0.62, mat('#4b5a6a'), -5.35, 0.45, 5.66, G);
+    const ct = withRepeat(pbr('marble'), 3, 0.6);
+    box(3.2, 0.9, 0.62, pbr('darkwood', { rows: 2 }), -5.35, 0.45, 5.66, G);
     box(3.25, 0.05, 0.66, ct, -5.35, 0.92, 5.64, G);
     this.addCol(-6.97, 5.3, -3.73, 6);
     // Estufa
@@ -427,7 +430,7 @@ export class Apartment {
     box(0.32, 0.2, 0.01, mat('#113', { roughness: 0.1 }), -6.87, 1.09, 5.52, G);
     // Mesa comedor
     const tb = new THREE.Group(); tb.position.set(-5.4, 0, 3.3); G.add(tb);
-    cyl(0.6, 0.6, 0.05, mat('#a0785a'), 0, 0.75, 0, tb, 24);
+    cyl(0.6, 0.6, 0.05, pbr('wood', { rows: 4 }), 0, 0.75, 0, tb, 24);
     cyl(0.06, 0.2, 0.75, mat('#333'), 0, 0.375, 0, tb, 12);
     for (const a of [0, Math.PI]) {
       const ch = new THREE.Group(); ch.position.set(Math.cos(a) * 0.85, 0, Math.sin(a) * 0.85); ch.rotation.y = -a + Math.PI / 2; tb.add(ch);
@@ -445,10 +448,10 @@ export class Apartment {
   buildLiving() {
     const G = this.group;
     // Alfombra
-    const rug = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 2.2), mat('#6c5b7b', { roughness: 1 })); rug.rotation.x = -Math.PI / 2; rug.position.set(0.5, 0.01, 3.8); rug.receiveShadow = true; G.add(rug);
+    const rug = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 2.2), pbr('carpet', { color: '#6c5b7b', repeat: [3, 2] })); rug.rotation.x = -Math.PI / 2; rug.position.set(0.5, 0.01, 3.8); rug.receiveShadow = true; G.add(rug);
     // Sofá mirando al sur (TV)
     const sofa = new THREE.Group(); sofa.position.set(0.5, 0, 2.6); G.add(sofa);
-    const sm = mat('#3b6978', { roughness: 0.95 });
+    const sm = pbr('fabric', { color: '#3b6978', repeat: [2, 1] });
     box(2.4, 0.42, 0.95, sm, 0, 0.21, 0, sofa);
     box(2.4, 0.7, 0.25, sm, 0, 0.6, -0.4, sofa);
     box(0.25, 0.6, 0.95, sm, -1.2, 0.35, 0, sofa); box(0.25, 0.6, 0.95, sm, 1.2, 0.35, 0, sofa);
@@ -463,7 +466,7 @@ export class Apartment {
     box(0.25, 0.03, 0.15, mat('#111'), 0.4, 0.44, 3.9, G); // control
     this.addCol(0, 3.62, 1.0, 4.18);
     // TV
-    box(1.8, 0.45, 0.45, mat('#3d2f24'), 0.5, 0.225, 5.7, G);
+    box(1.8, 0.45, 0.45, pbr('darkwood'), 0.5, 0.225, 5.7, G);
     box(1.6, 0.9, 0.05, mat('#0a0a0a', { roughness: 0.2 }), 0.5, 1.15, 5.8, G);
     this.tvCanvas = document.createElement('canvas'); this.tvCanvas.width = 256; this.tvCanvas.height = 144;
     this.tvTex = new THREE.CanvasTexture(this.tvCanvas); this.tvTex.colorSpace = THREE.SRGBColorSpace;
@@ -474,7 +477,7 @@ export class Apartment {
     box(0.3, 0.06, 0.25, mat('#fff'), 0.9, 0.48, 5.65, G);
     // Librero
     const bs = new THREE.Group(); bs.position.set(2.9, 0, 5.7); G.add(bs);
-    box(1.2, 2.0, 0.35, mat('#6d4c33'), 0, 1.0, 0, bs);
+    box(1.2, 2.0, 0.35, pbr('darkwood'), 0, 1.0, 0, bs);
     const cols = ['#e74c3c', '#3498db', '#2ecc71', '#f39c12', '#9b59b6', '#1abc9c', '#e67e22'];
     for (let s = 0; s < 4; s++) {
       box(1.1, 0.03, 0.3, mat('#4a3322'), 0, 0.3 + s * 0.45, -0.03, bs);

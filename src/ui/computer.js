@@ -10,6 +10,7 @@ import { techCheck, setupScore } from '../game/stream.js';
 import { STREAMERS } from '../data/chat.js';
 import { ACHIEVEMENTS } from '../data/progress.js';
 import { sfx } from '../core/audio.js';
+import { genCandidates, hire, fire, train, motivate, BOT_PACKS, buyBots, isBanned } from '../game/extras.js';
 
 const APPS = [
   { id: 'streamix', name: 'Streamix', icon: '📡', color: '#9146ff' },
@@ -21,6 +22,8 @@ const APPS = [
   { id: 'chirper', name: 'Chirper', icon: '🐦', color: '#1da1f2' },
   { id: 'bank', name: 'Banco', icon: '🏦', color: '#2d3436' },
   { id: 'mypc', name: 'Mi PC', icon: '🖥️', color: '#636e72' },
+  { id: 'agency', name: 'Agencia', icon: '🏠', color: '#6c5ce7' },
+  { id: 'gris', name: 'ZonaGris', icon: '🕶️', color: '#111111' },
   { id: 'trophies', name: 'Logros', icon: '🏆', color: '#fdcb6e' },
 ];
 
@@ -86,7 +89,7 @@ export function openApp(id) {
       body),
     taskbar(),
   );
-  const renderers = { streamix: appStreamix, market: appMarket, vapor: appVapor, mail: appMail, jobs: appJobs, vidcut: appVidcut, chirper: appChirper, bank: appBank, mypc: appMyPC, trophies: appTrophies };
+  const renderers = { streamix: appStreamix, market: appMarket, vapor: appVapor, mail: appMail, jobs: appJobs, vidcut: appVidcut, chirper: appChirper, bank: appBank, mypc: appMyPC, trophies: appTrophies, agency: appAgency, gris: appGris };
   const rerender = () => { clear(body); renderers[id](body, rerender); };
   rerender();
 }
@@ -134,7 +137,9 @@ function appStreamix(body, rerender) {
           S.collab && S.collab.until > now() ? h('div.ok', {}, `🤝 Colaboración lista con ${S.collab.who}`) : null,
           h('div.issues', {}, tech.issues.length ? tech.issues.map((i) => h('div', { class: i.lvl }, (i.lvl === 'bad' ? '⛔ ' : '⚠️ ') + i.t)) : h('div.ok', {}, '✅ Todo listo para transmitir')),
           h('div.tip', {}, `Mejor horario: 17:00–23:00 (hora actual ${fmtClock(S.minute)})`),
-          btn('🔴 INICIAR DIRECTO', () => { if (S.needs.energy < 5) { notify('Estás demasiado cansado para transmitir', 'bad'); return; } const s = { ...st }; closeComputerSilently(); onStream?.(s); }, 'big live'),
+          isBanned() ? h('div.bad', {}, `⛔ Canal suspendido hasta el día ${Math.floor(S.bots.banUntil / 1440) + 1} ${fmtClock(S.bots.banUntil % 1440)}`) : null,
+          S.bots.pending ? h('div.warn', {}, `🤖 ${S.bots.pending} bots se conectarán a este directo (riesgo de detección ${Math.round(S.bots.risk * 100)}%)`) : null,
+          btn('🔴 INICIAR DIRECTO', () => { if (isBanned()) { notify('Tu canal está suspendido', 'bad'); return; } if (S.needs.energy < 5) { notify('Estás demasiado cansado para transmitir', 'bad'); return; } const s = { ...st }; closeComputerSilently(); onStream?.(s); }, 'big live'),
         ),
       ),
     );
@@ -436,4 +441,50 @@ function appTrophies(body) {
   const got = Object.keys(S.achievements).length;
   body.append(h('h3', {}, `Logros ${got}/${ACHIEVEMENTS.length}`), h('div.ach-grid', {}, ACHIEVEMENTS.map((a) => h('div.ach', { class: S.achievements[a.id] ? 'got' : '' }, h('div.ach-i', {}, S.achievements[a.id] ? a.icon : '🔒'), h('b', {}, a.name), h('small', {}, a.desc)))));
   body.append(h('h3', {}, 'Habilidades'), skillsPanel());
+}
+
+// ======================= AGENCIA =======================
+function appAgency(body, rerender) {
+  const A = S.agency;
+  if (!S.flags.affiliate) {
+    body.append(h('div.tip', {}, '🔒 Conviértete en Afiliado para abrir tu propia agencia de streamers (casa de streaming).'));
+    return;
+  }
+  if (A.candDay !== S.day || !A.candidates.length) genCandidates();
+  body.append(
+    h('p.muted', {}, 'Contrata streamers, dales equipo y quédate con el 60% de lo que ganen. Cada día pagan su sueldo. Si están de mal humor pueden renunciar.'),
+    h('div.stat-grid', {},
+      statCard('Streamers', `${A.employees.length}/${A.slots}`, '👥'),
+      statCard('Ganancia total', fmtMoney(S.stats.agencyEarned || 0), '💰'),
+      statCard('Casa', A.office ? 'Casa de streaming' : 'Tu apartamento', '🏠'),
+    ),
+    !A.office ? h('div.row', {}, btn(`🏠 Alquilar casa de streaming (+4 plazas) · ${fmtMoney(6000)}`, () => {
+      if (S.money < 6000) { notify('Sin dinero suficiente', 'bad'); return; }
+      addMoney(-6000, 'Casa de streaming'); A.office = true; A.slots = 6; notify('🏠 ¡Ahora tienes una casa de streaming!', 'gold'); rerender();
+    })) : null,
+    h('h3', {}, 'Tu equipo'),
+    A.employees.length ? h('div.job-list', {}, A.employees.map((e) => h('div.job-card', {},
+      h('div.job-h', {}, h('b', {}, `${e.name} · Nv ${e.skill}`), h('span.price', {}, `${e.earned >= 0 ? '+' : ''}${fmtMoney(e.earned)}`)),
+      h('small.muted', {}, `${fmtNum(e.followers)} seguidores · juega ${GAME[e.game].name} · sueldo ${fmtMoney(e.salary)}/día`),
+      h('div.kv', {}, h('span', {}, `Ánimo ${Math.round(e.mood)}%`), bar(e.mood, e.mood > 50 ? '#2ecc71' : e.mood > 25 ? '#f1c40f' : '#e74c3c')),
+      h('div.row', {}, btn(`📚 Entrenar (${fmtMoney(250 * e.skill)})`, () => { train(e); rerender(); }, '', e.skill >= 10), btn('🍕 Invitar pizza ($50)', () => { motivate(e); rerender(); }), btn('Despedir', () => { fire(e); rerender(); }, 'danger')),
+    ))) : h('p.muted', {}, 'Todavía no tienes streamers.'),
+    h('h3', {}, 'Candidatos de hoy'),
+    h('div.shop-grid', {}, A.candidates.map((c) => h('div.shop-card', {},
+      h('div.sc-icon', {}, '🧑‍💻'), h('b', {}, c.name), h('small', {}, `Nivel ${c.skill} · ${GAME[c.game].name} · ${fmtNum(c.followers)} seguidores`),
+      h('small.extra', {}, `Sueldo ${fmtMoney(c.salary)}/día`), h('div.price', {}, `Equipo: ${fmtMoney(c.setup)}`),
+      btn('Contratar', () => { if (hire(c)) rerender(); }, '', A.employees.length >= A.slots)))),
+  );
+}
+
+// ======================= ZONAGRIS (bots) =======================
+function appGris(body, rerender) {
+  body.append(
+    h('div.gris', {},
+      h('h3', {}, '🕶️ ZonaGris · servicios "de crecimiento"'),
+      h('p.muted', {}, 'Compra espectadores falsos para tu próximo directo. Suben la cifra de espectadores (y la posición en el directorio), pero no siguen, no se suscriben ni donan. Si Streamix los detecta recibes una advertencia; con 3 te suspenden el canal 3 días y pierdes seguidores.'),
+      h('div.stat-grid', {}, statCard('Advertencias', `${S.bots.strikes}/3`, '⚠️'), statCard('Bots en cola', S.bots.pending, '🤖'), statCard('Estado', isBanned() ? 'SUSPENDIDO' : 'Activo', isBanned() ? '⛔' : '✅')),
+      h('div.shop-grid', {}, BOT_PACKS.map((p) => h('div.shop-card', {}, h('div.sc-icon', {}, '🤖'), h('b', {}, `${p.n} espectadores`), h('small', {}, `Riesgo de detección: ${Math.round(p.risk * 100)}%`), h('div.price', {}, fmtMoney(p.price)), btn('Comprar', () => { if (buyBots(p)) rerender(); })))),
+    ),
+  );
 }

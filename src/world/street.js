@@ -1,6 +1,7 @@
 // Calle exterior con tiendas, parque, peatones y autos.
 import * as THREE from 'three';
-import { mat, glow, box, cyl, sphere, textPlane, aabb, noiseTex } from './util.js';
+import { mat, glow, box, cyl, sphere, textPlane, aabb, worldUV } from './util.js';
+import { pbr, withRepeat } from './textures.js';
 import { Character, randomLook } from './character.js';
 
 export const STREET_ORIGIN = new THREE.Vector3(200, 0, 0);
@@ -24,8 +25,11 @@ export class Street {
   building(x, z, w, d, h, color, sign, signColor, id, label, facing = 1) {
     const G = this.group;
     const b = new THREE.Group(); b.position.set(x, 0, z); G.add(b);
-    const wallM = new THREE.MeshStandardMaterial({ map: noiseTex(color, 18), roughness: 0.9 });
-    box(w, h, d, wallM, 0, h / 2, 0, b);
+    const wallM = pbr(this.brickIdx++ % 2 ? 'brick' : 'plaster', { color });
+    worldUV(box(w, h, d, wallM, 0, h / 2, 0, b), 2.2);
+    // Cornisa y base
+    box(w + 0.3, 0.35, d + 0.3, pbr('concrete', { color: '#8d8d93', tiles: 2 }), 0, h + 0.17, 0, b);
+    box(w + 0.1, 0.6, d + 0.1, pbr('concrete', { color: '#6f6f75', tiles: 2 }), 0, 0.3, 0, b);
     // Ventanas
     for (let fy = 1; fy < Math.floor(h / 3); fy++) {
       for (let wx = -w / 2 + 1.2; wx < w / 2 - 0.8; wx += 2) {
@@ -52,14 +56,18 @@ export class Street {
   build() {
     const G = this.group;
     // Suelo
-    const ground = new THREE.Mesh(new THREE.PlaneGeometry(120, 60), new THREE.MeshStandardMaterial({ map: (() => { const t = noiseTex('#5a7f4a', 30); t.repeat.set(20, 10); return t; })(), roughness: 1 }));
+    this.brickIdx = 0;
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(120, 60), withRepeat(pbr('grass'), 40, 20));
     ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; G.add(ground);
     // Carretera
-    const road = new THREE.Mesh(new THREE.PlaneGeometry(100, 6), new THREE.MeshStandardMaterial({ map: (() => { const t = noiseTex('#2f3033', 25); t.repeat.set(30, 2); return t; })(), roughness: 0.95 }));
+    const road = new THREE.Mesh(new THREE.PlaneGeometry(100, 6), withRepeat(pbr('asphalt'), 25, 1.5));
     road.rotation.x = -Math.PI / 2; road.position.y = 0.01; road.receiveShadow = true; G.add(road);
     for (let x = -48; x < 50; x += 4) { const l = box(2, 0.01, 0.15, mat('#f5f5f5'), x, 0.02, 0, G); l.castShadow = false; }
     // Aceras
-    for (const z of [-4.5, 4.5]) { const s = box(100, 0.15, 3, mat('#9a9aa0', { roughness: 0.9 }), 0, 0.075, z, G); s.castShadow = false; }
+    for (const z of [-4.5, 4.5]) {
+      const sw = worldUV(box(100, 0.15, 3, pbr('concrete', { color: '#b3b1ad', tiles: 2 }), 0, 0.075, z, G), 1.5); sw.castShadow = false;
+      box(100, 0.17, 0.18, pbr('concrete', { color: '#8e8c88', tiles: 1 }), 0, 0.085, z > 0 ? 3.05 : -3.05, G).castShadow = false; // bordillo
+    }
     // Paso de cebra
     for (let i = 0; i < 6; i++) box(0.5, 0.012, 5.6, mat('#eee'), -6 + i * 0.9, 0.02, 0, G).castShadow = false;
 
@@ -76,10 +84,10 @@ export class Street {
     this.building(42, -11, 8, 8, 14, '#8d99ae', null, '#fff');
 
     // Parque
-    const park = new THREE.Mesh(new THREE.PlaneGeometry(36, 12), mat('#4caf50', { roughness: 1 })); park.rotation.x = -Math.PI / 2; park.position.set(0, 0.02, 13); park.receiveShadow = true; G.add(park);
-    const path = new THREE.Mesh(new THREE.PlaneGeometry(2, 12), mat('#c2b280')); path.rotation.x = -Math.PI / 2; path.position.set(0, 0.03, 13); G.add(path);
+    const park = new THREE.Mesh(new THREE.PlaneGeometry(36, 12), withRepeat(pbr('grass'), 12, 4)); park.rotation.x = -Math.PI / 2; park.position.set(0, 0.02, 13); park.receiveShadow = true; G.add(park);
+    const path = new THREE.Mesh(new THREE.PlaneGeometry(2, 12), withRepeat(pbr('concrete', { color: '#c9b98f', tiles: 3 }), 1, 6)); path.rotation.x = -Math.PI / 2; path.position.set(0, 0.03, 13); G.add(path);
     const fountain = new THREE.Group(); fountain.position.set(0, 0, 13); G.add(fountain);
-    cyl(2, 2.1, 0.5, mat('#bbb'), 0, 0.25, 0, fountain, 24);
+    cyl(2, 2.1, 0.5, pbr('marble', { color: '#d8d6d0' }), 0, 0.25, 0, fountain, 24);
     const water = cyl(1.85, 1.85, 0.05, mat('#4fc3f7', { roughness: 0.05, metalness: 0.3, emissive: '#0a4a6a', emissiveIntensity: 0.3 }), 0, 0.45, 0, fountain, 24); water.castShadow = false;
     cyl(0.25, 0.3, 1.5, mat('#bbb'), 0, 0.75, 0, fountain, 12);
     this.fountainWater = water;
@@ -127,7 +135,101 @@ export class Street {
       G.add(ch.group); this.npcs.push(ch);
     }
 
+    this.building(44, 14, 8, 8, 6, '#f3d2c1', 'MASCOTAS', '#ff6fa8', 'petshop', 'Tienda de mascotas', -1);
+    this.props();
+    this.buildSky();
     this.spawn = new THREE.Vector3(STREET_ORIGIN.x, 0, STREET_ORIGIN.z - 5.5);
+  }
+
+  props() {
+    const G = this.group;
+    const metal = pbr('metal', { color: '#3a3d42' });
+    // Semáforos junto al paso de cebra
+    this.trafficLamps = [];
+    for (const [x, z, r] of [[-7, -3.4, 0], [-0.5, 3.4, Math.PI]]) {
+      const g = new THREE.Group(); g.position.set(x, 0.15, z); g.rotation.y = r; G.add(g);
+      cyl(0.06, 0.08, 3.2, metal, 0, 1.6, 0, g, 10);
+      box(0.3, 0.8, 0.25, mat('#1b1b1b'), 0, 3.3, 0.15, g);
+      const lamps = ['#ff2d2d', '#ffc400', '#2dff6a'].map((c, i) => { const m = glow(c, 0.2); sphere(0.08, m, 0, 3.55 - i * 0.25, 0.29, g, 10); return m; });
+      this.trafficLamps.push(lamps);
+      this.col(x - 0.1, z - 0.1, x + 0.1, z + 0.1);
+    }
+    // Papeleras, hidrantes y jardineras
+    for (let x = -36; x <= 36; x += 18) {
+      for (const z of [-5.8, 5.8]) {
+        const bx = x + (z > 0 ? 9 : 3);
+        const bin = new THREE.Group(); bin.position.set(bx, 0.15, z); G.add(bin);
+        cyl(0.25, 0.22, 0.8, mat('#2e7d32', { roughness: 0.5, metalness: 0.3 }), 0, 0.4, 0, bin, 14);
+        cyl(0.27, 0.27, 0.06, mat('#1b5e20'), 0, 0.82, 0, bin, 14);
+        this.col(bx - 0.28, z - 0.28, bx + 0.28, z + 0.28);
+      }
+    }
+    for (const x of [-21, 7, 35]) {
+      const hy = new THREE.Group(); hy.position.set(x, 0.15, -3.5); G.add(hy);
+      cyl(0.12, 0.14, 0.6, mat('#d32f2f', { roughness: 0.4, metalness: 0.3 }), 0, 0.3, 0, hy, 12);
+      sphere(0.13, mat('#d32f2f', { roughness: 0.4 }), 0, 0.62, 0, hy, 10);
+      const n = cyl(0.05, 0.05, 0.36, mat('#b71c1c'), 0, 0.4, 0, hy, 8); n.rotation.z = Math.PI / 2;
+    }
+    const soil = pbr('carpet', { color: '#4e342e' });
+    for (let x = -44; x <= 44; x += 22) {
+      const px = x + 11;
+      const pl = new THREE.Group(); pl.position.set(px, 0.15, 3.9); G.add(pl);
+      box(1.6, 0.45, 0.6, pbr('concrete', { color: '#9e9e9e', tiles: 1 }), 0, 0.22, 0, pl);
+      box(1.5, 0.05, 0.5, soil, 0, 0.46, 0, pl);
+      for (let i = 0; i < 7; i++) sphere(0.1, mat(['#ff6fa8', '#ffd166', '#f8f8f8', '#b388ff'][i % 4]), -0.6 + i * 0.2, 0.56 + Math.random() * 0.06, (Math.random() - 0.5) * 0.3, pl, 8);
+      this.col(px - 0.8, 3.6, px + 0.8, 4.2);
+    }
+    // Parada de autobús
+    const bs = new THREE.Group(); bs.position.set(-20, 0.15, 5.6); G.add(bs);
+    for (const x of [-1.4, 1.4]) cyl(0.05, 0.05, 2.4, metal, x, 1.2, 0.3, bs, 8);
+    box(3.2, 0.08, 1.3, mat('#90caf9', { transparent: true, opacity: 0.55, roughness: 0.05 }), 0, 2.42, 0, bs);
+    box(3.0, 1.8, 0.04, mat('#bbdefb', { transparent: true, opacity: 0.35, roughness: 0.05 }), 0, 1.2, 0.55, bs);
+    box(2.4, 0.08, 0.45, pbr('wood', { rows: 2 }), 0, 0.5, 0.25, bs);
+    const ad = textPlane('¡SIGUE A ' + 'STREAMIX!', { w: 1.2, h: 1.6, bg: '#9146ff', fg: '#fff', font: 'bold 70px sans-serif' }); ad.position.set(1.0, 1.25, 0.52); ad.rotation.y = Math.PI; bs.add(ad);
+    const sign = textPlane('BUS 42', { w: 0.6, h: 0.3, bg: '#1565c0', fg: '#fff' }); sign.position.set(-1.6, 2.7, 0.3); sign.rotation.y = Math.PI; bs.add(sign);
+    this.col(-21.6, 5.5, -18.4, 6.3);
+    // Vallas del parque
+    for (let x = -18; x <= 18; x += 1.2) { if (Math.abs(x) < 1.5) continue; box(0.06, 0.6, 0.06, mat('#fafafa'), x, 0.3, 7.1, G); }
+    box(36, 0.05, 0.05, mat('#fafafa'), 0, 0.5, 7.1, G);
+    // Edificios lejanos (horizonte)
+    const far = new THREE.Group(); G.add(far);
+    for (let i = 0; i < 40; i++) {
+      const a = (i / 40) * Math.PI * 2, r = 85 + Math.random() * 20;
+      const bh = 15 + Math.random() * 35, bw = 8 + Math.random() * 8;
+      const m = box(bw, bh, bw, mat(['#5d6b82', '#6c7a91', '#4f5b6e'][i % 3], { roughness: 1 }), Math.cos(a) * r, bh / 2, Math.sin(a) * r, far);
+      m.castShadow = false; m.receiveShadow = false;
+    }
+  }
+
+  buildSky() {
+    const G = this.group;
+    this.skyUni = { top: { value: new THREE.Color('#3b82d6') }, horizon: { value: new THREE.Color('#bfe3ff') }, sunDir: { value: new THREE.Vector3(0.3, 0.6, -0.7).normalize() }, sunColor: { value: new THREE.Color('#fff4d6') }, sunSize: { value: 0.9985 } };
+    const sky = new THREE.Mesh(new THREE.SphereGeometry(160, 32, 16), new THREE.ShaderMaterial({
+      uniforms: this.skyUni, side: THREE.BackSide, depthWrite: false, fog: false,
+      vertexShader: 'varying vec3 vDir; void main(){ vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
+      fragmentShader: `uniform vec3 top; uniform vec3 horizon; uniform vec3 sunDir; uniform vec3 sunColor; uniform float sunSize; varying vec3 vDir;
+        void main(){ float h = clamp(vDir.y, 0.0, 1.0); vec3 c = mix(horizon, top, pow(h, 0.55));
+          if (vDir.y < 0.0) c = horizon * 0.8;
+          float d = dot(normalize(vDir), normalize(sunDir));
+          c += sunColor * smoothstep(sunSize, sunSize + 0.0008, d) * 2.0 + sunColor * pow(max(d, 0.0), 64.0) * 0.35;
+          gl_FragColor = vec4(c, 1.0); }`,
+    }));
+    sky.renderOrder = -1; G.add(sky);
+    // Estrellas
+    const pts = []; for (let i = 0; i < 700; i++) { const v = new THREE.Vector3(Math.random() - 0.5, Math.random() * 0.9 + 0.1, Math.random() - 0.5).normalize().multiplyScalar(150); pts.push(v.x, v.y, v.z); }
+    const sg = new THREE.BufferGeometry(); sg.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+    this.stars = new THREE.Points(sg, new THREE.PointsMaterial({ color: '#ffffff', size: 0.9, transparent: true, opacity: 0, fog: false, depthWrite: false }));
+    G.add(this.stars);
+    // Nubes
+    this.clouds = new THREE.Group(); G.add(this.clouds);
+    const cm = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 1, emissive: '#ffffff', emissiveIntensity: 0.25, fog: false });
+    this.cloudMat = cm;
+    for (let i = 0; i < 12; i++) {
+      const c = new THREE.Group();
+      for (let k = 0; k < 5; k++) { const p = sphere(3 + Math.random() * 3, cm, k * 3.5 - 7, Math.random() * 1.5, Math.random() * 3, c, 10); p.scale.y = 0.5; p.castShadow = false; p.receiveShadow = false; }
+      c.position.set(-120 + Math.random() * 240, 45 + Math.random() * 20, -100 + Math.random() * 200);
+      this.clouds.add(c);
+    }
   }
 
   tree(x, z) {
@@ -155,9 +257,27 @@ export class Street {
     return g;
   }
 
-  setTimeOfDay(night) {
+  setTimeOfDay(night, minute = 720) {
+    const hh = minute / 60;
+    const ang = ((hh - 6) / 12) * Math.PI;
+    this.skyUni.sunDir.value.set(Math.cos(ang) * 0.8, Math.sin(ang), -0.5).normalize();
+    const dayTop = new THREE.Color('#2f7fd8'), dayHor = new THREE.Color('#cfe9ff');
+    const nightTop = new THREE.Color('#050818'), nightHor = new THREE.Color('#1a2140');
+    const duskHor = new THREE.Color('#ff9a5c'), duskTop = new THREE.Color('#5a4a8a');
+    const top = dayTop.clone().lerp(nightTop, night), hor = dayHor.clone().lerp(nightHor, night);
+    const dusk = Math.max(0, 1 - Math.abs(hh - 19) / 1.6) + Math.max(0, 1 - Math.abs(hh - 6.5) / 1.3);
+    if (dusk > 0) { hor.lerp(duskHor, Math.min(0.75, dusk)); top.lerp(duskTop, Math.min(0.5, dusk * 0.6)); }
+    this.skyUni.top.value.copy(top); this.skyUni.horizon.value.copy(hor);
+    this.skyUni.sunColor.value.set(dusk > 0.3 ? '#ffb070' : '#fff4d6').multiplyScalar(Math.sin(ang) > -0.05 ? 1 : 0);
+    this.horizonColor = hor;
+    this.stars.material.opacity = Math.max(0, night - 0.3);
+    this.cloudMat.color.set(night > 0.5 ? '#2a3050' : dusk > 0.3 ? '#ffd2b0' : '#ffffff');
+    this.cloudMat.emissiveIntensity = night > 0.5 ? 0.05 : 0.25;
+    // Semáforos (ciclo)
+    const t = (performance.now() / 1000) % 12; const st = t < 5 ? 2 : t < 7 ? 1 : 0;
+    (this.trafficLamps || []).forEach((l, j) => l.forEach((m, i) => { m.emissiveIntensity = i === (j ? (2 - st) % 3 : st) ? 3 : 0.15; }));
     this.lampMats.forEach((m) => { m.emissiveIntensity = night > 0.4 ? 3 : 0; });
-    this.streetLights.forEach((l) => { l.intensity = night > 0.4 ? 40 : 0; });
+    this.streetLights.forEach((l) => { l.intensity = night > 0.4 ? 22 : 0; });
     (this.winMats || []).forEach((m, i) => { m.emissiveIntensity = night > 0.4 && i % 3 !== 1 ? 0.8 : 0; });
   }
 
@@ -180,5 +300,6 @@ export class Street {
       n.update(dt, d.speed);
     }
     this.fountainWater.position.y = 0.45 + Math.sin(t * 2) * 0.01;
+    this.clouds.children.forEach((c, i) => { c.position.x += dt * (0.6 + (i % 3) * 0.3); if (c.position.x > 130) c.position.x = -130; });
   }
 }

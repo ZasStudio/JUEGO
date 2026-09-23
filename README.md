@@ -49,6 +49,17 @@ npm run build    # genera la versión final en dist/
 - Correo con pedidos, patrocinios, colaboraciones y fans. Banco con movimientos, renta semanal, internet y electricidad.
 - Tiendas: TecnoMarket (con envío a tu puerta), Vapor (juegos), periféricos, decoración, libros y planes de internet.
 
+**Novedades inspiradas en Streamer Life Simulator 2**
+- Historia inicial: te despiden de Café Byte y apuestas todo por el streaming. Puedes volver a cubrir **turnos de barista** (minijuego de preparar pedidos contra reloj).
+- **Agencia / casa de streaming**: contrata streamers, entrénalos, mantenlos motivados y quédate con el 60% de lo que ganan.
+- **ZonaGris**: compra bots de espectadores. Inflan tus números, pero pueden detectarte: 3 advertencias = canal suspendido.
+- **Mascotas 3D** (gato o perro) que pasean por tu casa, necesitan comida y cariño, y aparecen en tus directos.
+
+**Gráficos**
+- Texturas procedurales PBR (color, relieve y rugosidad): madera, yeso, azulejos, mármol, tela, alfombra, ladrillo, asfalto, concreto y césped.
+- Bloom en LEDs, neones y pantallas; reflejos de entorno; cielo dinámico con sol, nubes, atardecer y estrellas; niebla atmosférica.
+- Calle más viva: semáforos, papeleras, hidrantes, jardineras, parada de bus, vallas y ciudad en el horizonte.
+
 **Vida**
 - Hambre, energía, higiene y diversión: comer, cocinar, café, dormir, ducharse, TV, guitarra, arcade, gimnasio y café.
 - Habilidades: Carisma, Gaming, Edición y Hardware (niveles 1-10). Los libros las entrenan.

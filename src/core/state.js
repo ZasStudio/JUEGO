@@ -77,6 +77,10 @@ export function newState(player) {
     lastCoffee: -999,
     settings: { volume: 0.6, speed: 1, shadows: true },
     location: 'home',
+    agency: { employees: [], candidates: [], slots: 2, candDay: -1, office: false },
+    bots: { pending: 0, risk: 0, strikes: 0, banUntil: 0 },
+    pet: null, // {type, name, color, hunger, happy}
+    barista: { shifts: 0, best: 0 },
   };
 }
 

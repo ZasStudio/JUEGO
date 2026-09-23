@@ -131,3 +131,17 @@ export function aabbFromObject(obj, pad = 0) {
   const b = new THREE.Box3().setFromObject(obj);
   return aabb(b.min.x - pad, b.min.z - pad, b.max.x + pad, b.max.z + pad);
 }
+
+// Reescala las UV de una caja para que la textura se repita por metro (evita estiramientos).
+export function worldUV(mesh, unit = 1) {
+  const g = mesh.geometry;
+  const { width: w, height: h, depth: d } = g.parameters;
+  const uv = g.attributes.uv;
+  const dims = [[d, h], [d, h], [w, d], [w, d], [w, h], [w, h]];
+  for (let f = 0; f < 6; f++) for (let v = 0; v < 4; v++) {
+    const i = f * 4 + v;
+    uv.setXY(i, uv.getX(i) * dims[f][0] / unit, uv.getY(i) * dims[f][1] / unit);
+  }
+  uv.needsUpdate = true;
+  return mesh;
+}

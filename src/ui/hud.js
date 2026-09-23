@@ -16,7 +16,7 @@ export function initHUD() {
       refs.money = h('div.hud-chip.money'),
       refs.fol = h('div.hud-chip.fol'),
       refs.subs = h('div.hud-chip.subs'),
-      refs.mail = h('div.hud-chip.mail', { title: 'Correos sin leer' }),
+      refs.mail = h('div.hud-chip.mailchip', { title: 'Correos sin leer' }),
     ),
     refs.needs = h('div.needs'),
     refs.quest = h('div.quest'),

@@ -1,6 +1,11 @@
 // Streamer Life 3D - punto de entrada: render, bucle de juego, jugador, cámara e interacciones.
 import * as THREE from 'three';
 import './style.css';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { S, setState, newState, save, loadSave, hasSave, deleteSave, bus, notify, clamp, now, addMoney, addXP, skill, fmtMoney, fmtClock, rand, randi, lerp, SKILL_NAMES } from './core/state.js';
 import { sfx, startMusic, setVolume } from './core/audio.js';
 import { Character } from './world/character.js';
@@ -13,6 +18,8 @@ import { PARTS, part, partsBySlot, SLOT_ORDER, SLOT_NAMES, SLOT_ICONS, partDesc 
 import { QUESTS } from './data/progress.js';
 import { sim, tick, realtimeTick, refreshDerived, eat, applyFood, openPackages, pushEmail, makeJobEmail, checkProgress, receiveItems, mood } from './game/sim.js';
 import { StreamSession } from './game/stream.js';
+import { PETS, BARISTA, LABELS, randomOrder, isBanned } from './game/extras.js';
+import { Pet } from './world/pet.js';
 import { h, $, clear, btn, bar } from './ui/dom.js';
 import { initHUD, showHUD, updateHUD, setPrompt, toast, bigMessage, fade, modal, modalOpen, closeTopModal, choose, progressOverlay, skillsPanel, moodText } from './ui/hud.js';
 import { openComputer, closeComputer, computerOpen, computerBack } from './ui/computer.js';
@@ -32,9 +39,23 @@ renderer.toneMappingExposure = 1.05;
 const camera = new THREE.PerspectiveCamera(55, 1, 0.05, 400);
 let scene = null;
 
+// Postprocesado: bloom para LEDs, neones y pantallas
+const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 }));
+const renderPass = new RenderPass(null, camera);
+const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.5, 0.45, 1.7);
+composer.addPass(renderPass); composer.addPass(bloom); composer.addPass(new OutputPass());
+let hiQuality = true;
+function draw(sc) {
+  if (hiQuality) { renderPass.scene = sc; composer.render(); } else renderer.render(sc, camera);
+}
+// Reflejos de entorno (metales, vidrio, pantallas)
+const pmrem = new THREE.PMREMGenerator(renderer);
+const envTex = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+
 function resize() {
   const w = window.innerWidth, hh = window.innerHeight;
   renderer.setSize(w, hh, false);
+  composer.setSize(w, hh); composer.setPixelRatio(renderer.getPixelRatio());
   camera.aspect = w / hh; camera.updateProjectionMatrix();
 }
 window.addEventListener('resize', resize);
@@ -68,6 +89,10 @@ showroom.add(showChar.group);
 // ---------------- Mundo de juego ----------------
 const world = new THREE.Scene();
 world.background = new THREE.Color('#0f1016');
+world.environment = envTex;
+world.environmentIntensity = 0.35;
+showroom.environment = envTex;
+showroom.environmentIntensity = 0.4;
 let apt = null, street = null, player = null;
 const P = { pos: new THREE.Vector3(-2, 0, -2), rotY: 0, vel: new THREE.Vector3(), yaw: Math.PI * 0.85, pitch: 0.55, dist: 6.5 };
 let mode = 'menu'; // menu | creator | walk | pc | stream | bench | busy | paused
@@ -82,6 +107,12 @@ function buildWorld() {
   player.onStep = () => { if (Math.random() < 0.5) sfx.step(); };
   world.add(player.group);
   refreshAll();
+}
+
+let pet = null;
+function refreshPet() {
+  if (pet) { world.remove(pet.group); pet = null; }
+  if (S.pet) { pet = new Pet(S.pet.type, S.pet.color); world.add(pet.group); }
 }
 
 function refreshAll() {
@@ -201,10 +232,21 @@ function creator() {
 
 // ---------------- Inicio de partida ----------------
 function startGame(state, fresh = false) {
+  if (!apt) {
+    const ld = h('div.loading', {}, h('div.ld-spin'), h('div', {}, 'Construyendo el mundo 3D y sus texturas...'));
+    $('#ui').appendChild(ld);
+    setTimeout(() => { startGameNow(state, fresh); ld.remove(); }, 60);
+    return;
+  }
+  startGameNow(state, fresh);
+}
+function startGameNow(state, fresh) {
   setState(state);
   setVolume(S.settings.volume);
+  hiQuality = S.settings.hiQuality !== false;
   if (!apt) buildWorld();
   else { player.setLook(S.player.look); refreshAll(); }
+  refreshPet();
   if (!Object.keys(S.trends).length) updateTrends(S, true);
   scene = world;
   S.location = 'home';
@@ -217,7 +259,8 @@ function startGame(state, fresh = false) {
     pushEmail({ from: 'Streamix', subject: '¡Bienvenido a Streamix! 💜', body: `Hola ${S.player.name},\n\nTu canal "${S.player.channel}" ya está creado. Empieza a transmitir desde la app Streamix.\n\nConsejos:\n• Transmite entre las 17:00 y 23:00 para tener más audiencia.\n• Los juegos muy populares tienen mucha competencia.\n• Llega a 50 seguidores y 3 directos para ser Afiliado.\n\n¡Mucha suerte!` });
     pushEmail(makeJobEmail('repair'));
     pushEmail(makeJobEmail('build'));
-    setTimeout(() => bigMessage(`¡Hola, ${S.player.name}!`, 'Tu aventura como streamer empieza hoy. Sigue las misiones de la esquina superior derecha.'), 600);
+    pushEmail({ from: 'Café Byte · Don Ramón', subject: 'Sobre tu despido...', body: `${S.player.name}, sé que te despedí por jugar en el celular durante tu turno 😅\n\nSi necesitas dinero mientras creces como streamer, pasa por Café Byte (sal a la calle) y cubre turnos de barista de medio tiempo.\n\n¡Suerte con eso del stream!` });
+    setTimeout(() => bigMessage('Te despidieron del café ☕', `Hoy ${S.player.name} apuesta todo por ser streamer. Sigue las misiones de la esquina superior derecha.`), 600);
     save();
   }
   updateHUD();
@@ -225,7 +268,11 @@ function startGame(state, fresh = false) {
 
 // ---------------- Jugador ----------------
 function colliders() { return S.location === 'home' ? apt.colliders : street.colliders; }
-function interactables() { return S.location === 'home' ? apt.interactables : street.interactables; }
+function interactables() {
+  if (S.location !== 'home') return street.interactables;
+  if (!pet) return apt.interactables;
+  return [...apt.interactables, { id: 'pet', x: pet.group.position.x, z: pet.group.position.z, r: 0.5, label: `${S.pet.name} (${S.pet.type === 'cat' ? 'gato' : 'perro'})` }];
+}
 
 function movePlayer(dt) {
   let ix = 0, iz = 0;
@@ -344,6 +391,8 @@ function interact() {
     case 'guitar': return passTime(30, '🎸 Tocando la guitarra...', { pose: 'work', perMinute: () => { N.fun = clamp(N.fun + 0.8, 0, 100); addXP('charisma', 0.3); } });
     case 'arcade': return passTime(30, '🕹️ Jugando en el arcade...', { pose: 'work', perMinute: () => { N.fun = clamp(N.fun + 1.1, 0, 100); addXP('gaming', 0.4); } });
     // Calle
+    case 'pet': return petMenu();
+    case 'petshop': return petShopMenu();
     case 'home': return goHome();
     case 'market': return marketMenu();
     case 'pcshop': return pcShopMenu();
@@ -522,6 +571,7 @@ function endStream(sm) {
         statC('Duración', `${Math.floor(sm.minutes / 60)}h ${sm.minutes % 60}m`), statC('Media', sm.avg + ' 👀'), statC('Pico', sm.peak + ' 👀'),
         statC('Nuevos seguidores', '+' + sm.followers), statC('Nuevos subs', S.flags.affiliate ? '+' + sm.subs : '—'), statC('Ganancias', fmtMoney(money)),
       ),
+      sm.bots ? h('div', { class: sm.botResult ? 'bad' : 'warn' }, sm.botResult === 'ban' ? '⛔ Streamix detectó tus bots: canal SUSPENDIDO 3 días.' : sm.botResult === 'strike' ? `⚠️ Streamix detectó bots: advertencia ${S.bots.strikes}/3.` : `🤖 ${sm.bots} bots inflaron tus espectadores sin que nadie lo notara... esta vez.`) : null,
       sm.minutes >= 20 ? h('p.muted', {}, '🎬 Se guardó el VOD. Edítalo en VidCut para subir un video.') : h('p.muted', {}, 'Directo muy corto: no se guardó VOD.'),
       sm.minutes < 30 ? h('p.muted', {}, '⚠️ Los directos de menos de 30 min no cuentan para Afiliado.') : null,
     ),
@@ -639,14 +689,111 @@ async function cafeMenu() {
     { value: 'coffee', icon: '☕', label: 'Café latte · $4', sub: 'Energía +20 · Diversión +3' },
     { value: 'cake', icon: '🍰', label: 'Pastel y jugo · $8', sub: 'Hambre +35 · Diversión +10' },
     { value: 'wifi', icon: '💻', label: 'Networking con otros creadores (1h) · $6', sub: '+Carisma, a veces nuevos seguidores' },
+    { value: 'work', icon: '🧑‍🍳', label: 'Trabajar un turno de barista (4h)', sub: `Tu antiguo jefe te deja cubrir turnos · $40 + propinas · ${S.barista.shifts} turnos hechos` },
   ]);
+  if (v === 'work') return baristaShift();
   if (!v) return;
-  const cost = { coffee: 4, cake: 8, wifi: 6 }[v];
+  const cost = { coffee: 4, cake: 8, wifi: 6 }[v] || 0;
   if (S.money < cost) { notify('Sin dinero suficiente', 'bad'); return; }
   addMoney(-cost, 'Café Byte');
   if (v === 'coffee') await passTime(10, '☕ Tomando café...', { perMinute: () => { S.needs.energy = clamp(S.needs.energy + 2, 0, 100); S.needs.fun = clamp(S.needs.fun + 0.3, 0, 100); } });
   if (v === 'cake') { await passTime(15, '🍰 Merendando...', { pose: 'eat' }); applyFood({ hunger: 35, fun: 10 }); }
   if (v === 'wifi') { await passTime(60, '🤝 Conversando con otros creadores...', { perMinute: () => { addXP('charisma', 0.5); S.needs.fun = clamp(S.needs.fun + 0.2, 0, 100); } }); const g = randi(0, 3 + Math.floor(skill('charisma') / 2)); S.stats.followers += g; if (g) notify(`🤝 Conociste gente: +${g} seguidores`, 'good'); }
+}
+
+// ---------------- Barista ----------------
+function baristaShift() {
+  if (S.needs.energy < 20) { notify('Estás muy cansado para trabajar', 'bad'); return; }
+  const N_ORD = 8;
+  let idx = 0, correct = 0, tips = 0, order = randomOrder(), sel = {}, t0 = performance.now(), timer = null, fillEl = null;
+  mode = 'busy';
+  const m = modal({
+    title: '☕ Turno de barista en Café Byte', wide: true, closable: false,
+    content: (b) => {
+      const render = () => {
+        clear(b);
+        const left = Math.max(0, 14 - (performance.now() - t0) / 1000);
+        b.append(
+          h('div.row.between', {}, h('b', {}, `Pedido ${idx + 1}/${N_ORD}`), h('span', {}, `✅ ${correct} · 💵 propinas ${fmtMoney(tips)}`)),
+          h('div.order', {}, h('div.order-cup', {}, '☕'), h('div', {}, h('div.muted', {}, `Cliente: ${['Ana', 'Leo', 'Sara', 'Iván', 'Nora', 'Hugo', 'Eva', 'Tito'][idx % 8]} quiere:`), h('div.order-txt', {}, `${order.drink} ${order.size.toLowerCase()} · leche ${order.milk.toLowerCase()} · extra: ${order.extra.toLowerCase()}`))),
+          h('div.pbar', {}, fillEl = h('div.pfill', { style: { width: `${(left / 14) * 100}%` } })),
+          ...Object.keys(BARISTA).map((k) => h('div.opt', {}, h('label', {}, LABELS[k]), h('div.opt-row', {}, BARISTA[k].map((o) => h('button.chip', { class: sel[k] === o ? 'sel' : '', onclick: () => { sel[k] = o; render(); } }, o))))),
+          h('div.row', {}, btn('🛎️ Servir', () => serve(), 'big good', Object.keys(sel).length < 4)),
+        );
+      };
+      const serve = () => {
+        const hits = Object.keys(BARISTA).filter((k) => sel[k] === order[k]).length;
+        const secs = (performance.now() - t0) / 1000;
+        if (hits === 4) { correct++; const tip = Math.max(0, Math.round((14 - secs) / 3)); tips += tip; sfx.money(); } else sfx.error();
+        idx++;
+        if (idx >= N_ORD) { clearInterval(timer); finish(); return; }
+        order = randomOrder(); sel = {}; t0 = performance.now(); render();
+      };
+      timer = setInterval(() => {
+        const left = 14 - (performance.now() - t0) / 1000;
+        if (left <= 0) serve();
+        else if (fillEl) { fillEl.style.width = `${(left / 14) * 100}%`; fillEl.style.background = left < 4 ? '#e74c3c' : ''; }
+      }, 200);
+      render();
+    },
+  });
+  const finish = () => {
+    m.close();
+    const pay = 40 + correct * 3 + tips;
+    for (let i = 0; i < 240; i++) tick(1);
+    S.needs.energy = clamp(S.needs.energy - 12, 0, 100); S.needs.fun = clamp(S.needs.fun - 6, 0, 100); S.needs.hygiene = clamp(S.needs.hygiene - 8, 0, 100);
+    addMoney(pay, 'Turno de barista');
+    S.barista.shifts++; S.barista.best = Math.max(S.barista.best, correct);
+    addXP('charisma', 8 + correct);
+    mode = 'walk';
+    modal({ title: '☕ Turno terminado', content: h('p', {}, `Serviste ${correct}/${N_ORD} pedidos perfectos. Ganaste ${fmtMoney(pay)} (${fmtMoney(tips)} en propinas). Pasaron 4 horas.`), actions: [{ text: 'OK', cls: 'good' }] });
+    updateHUD();
+  };
+}
+
+// ---------------- Mascotas ----------------
+function petShopMenu() {
+  modal({
+    title: '🐾 Tienda de mascotas', wide: true,
+    content: (b, close) => {
+      const render = () => {
+        clear(b);
+        b.append(h('p.muted', {}, 'Una mascota te alegra el día y a veces aparece en tus directos (+hype). Necesita comida y cariño.'));
+        if (!S.pet) {
+          b.append(h('div.shop-grid', {}, PETS.map((p) => h('div.shop-card', {}, h('div.sc-icon', {}, p.type === 'cat' ? '🐱' : '🐶'), h('b', {}, `Adoptar ${p.name.toLowerCase()}`),
+            h('div.opt-row', {}, p.colors.map((c) => h('button.swatch', { style: { background: c }, class: p._c === c ? 'sel' : '', onclick: () => { p._c = c; render(); } }))),
+            h('input.inp', { id: `petname-${p.type}`, placeholder: 'Nombre', maxLength: 12 }),
+            h('div.price', {}, fmtMoney(p.price)),
+            btn('Adoptar', () => {
+              if (S.money < p.price) { notify('Sin dinero suficiente', 'bad'); return; }
+              const name = document.getElementById(`petname-${p.type}`).value.trim() || (p.type === 'cat' ? 'Michi' : 'Toby');
+              addMoney(-p.price, `Adopción: ${name}`);
+              S.pet = { type: p.type, name, color: p._c || p.colors[0], hunger: 80, happy: 80 };
+              S.inventory.food.petfood = (S.inventory.food.petfood || 0) + 3;
+              refreshPet(); sfx.levelup();
+              bigMessage(`🐾 ¡Bienvenido, ${name}!`, 'Ya vive en tu apartamento. Acércate y pulsa E para cuidarlo.');
+              close();
+            })))));
+        } else b.append(h('p', {}, `Ya tienes a ${S.pet.name}.`));
+        b.append(h('div.row', {}, btn(`🥫 Comida para mascota x5 · $12 (tienes ${S.inventory.food.petfood || 0})`, () => {
+          if (S.money < 12) return; addMoney(-12, 'Comida de mascota'); S.inventory.food.petfood = (S.inventory.food.petfood || 0) + 5; sfx.cash(); render();
+        })));
+      };
+      render();
+    },
+    actions: [{ text: 'Salir' }],
+  });
+}
+async function petMenu() {
+  const p = S.pet;
+  const v = await choose(`🐾 ${p.name}`, [
+    { value: 'pet', icon: '🤲', label: 'Acariciar', sub: '+Diversión' },
+    { value: 'feed', icon: '🥫', label: `Dar de comer (tienes ${S.inventory.food.petfood || 0})`, disabled: !(S.inventory.food.petfood > 0) },
+    { value: 'play', icon: '🧶', label: 'Jugar 20 min', sub: '+Diversión, +felicidad' },
+  ], `Hambre ${Math.round(p.hunger)}% · Felicidad ${Math.round(p.happy)}%`);
+  if (v === 'pet') { S.needs.fun = clamp(S.needs.fun + 6, 0, 100); p.happy = clamp(p.happy + 8, 0, 100); notify(`${p.type === 'cat' ? '😺 Prrrr...' : '🐶 ¡Guau!'}`, 'good'); }
+  if (v === 'feed') { S.inventory.food.petfood--; p.hunger = 100; p.happy = clamp(p.happy + 5, 0, 100); sfx.eat(); notify(`🥫 ${p.name} comió feliz`, 'good'); }
+  if (v === 'play') await passTime(20, `🧶 Jugando con ${p.name}...`, { perMinute: () => { S.needs.fun = clamp(S.needs.fun + 0.8, 0, 100); p.happy = clamp(p.happy + 1, 0, 100); } });
 }
 
 // ---------------- Teléfono / pausa ----------------
@@ -669,7 +816,7 @@ function openPhone() {
               h('p.muted', {}, 'Carisma: más hype y seguidores · Gaming: mejores jugadas · Edición: mejores videos · Hardware: mejores pagos y diagnósticos')),
           ));
         } else if (tab === 'inv') {
-          const food = Object.entries(S.inventory.food).map(([id, n]) => `${FOOD[id]?.icon} ${FOOD[id]?.name} x${n}`);
+          const food = Object.entries(S.inventory.food).filter(([id]) => FOOD[id]).map(([id, n]) => `${FOOD[id]?.icon} ${FOOD[id]?.name} x${n}`);
           const parts = {}; S.inventory.parts.forEach((p) => { parts[p.id] = (parts[p.id] || 0) + 1; });
           b.append(
             h('h3', {}, '🍕 Comida'), h('p', {}, food.join(' · ') || 'Nada'),
@@ -693,6 +840,7 @@ function openPhone() {
         } else {
           b.append(
             h('div.kv', {}, h('span', {}, 'Volumen'), h('input', { type: 'range', min: 0, max: 1, step: 0.05, value: S.settings.volume, oninput: (e) => setVolume(+e.target.value) })),
+            h('div.kv', {}, h('span', {}, 'Calidad gráfica (bloom + antialias)'), btn(hiQuality ? 'Alta' : 'Rendimiento', () => { hiQuality = !hiQuality; S.settings.hiQuality = hiQuality; render(); })),
             h('div.kv', {}, h('span', {}, 'Sombras'), btn(S.settings.shadows ? 'Activadas' : 'Desactivadas', () => { S.settings.shadows = !S.settings.shadows; renderer.shadowMap.enabled = S.settings.shadows; world.traverse((o) => { if (o.material) o.material.needsUpdate = true; }); render(); })),
             h('div.row', {}, btn('💾 Guardar partida', () => { save(); notify('💾 Partida guardada', 'good'); })),
           );
@@ -778,7 +926,7 @@ function loop() {
     if (!dragging && mode === 'menu') showChar.group.rotation.y += dt * 0.4;
     camera.position.set(0, 1.55, mode === 'creator' ? 3.3 : 4.2);
     camera.lookAt(mode === 'creator' ? -0.55 : 0, 1.15, 0);
-    renderer.render(showroom, camera);
+    draw(showroom);
     return;
   }
   if (!S) return;
@@ -794,10 +942,16 @@ function loop() {
 
   // Mundo
   const tod = apt.setTimeOfDay(S.minute);
-  street.setTimeOfDay(tod.night);
+  street.setTimeOfDay(tod.night, S.minute);
   apt.update(dt, elapsed);
+  if (pet) { pet.group.visible = S.location === 'home'; if (S.location === 'home') pet.update(dt, P.pos, mode === 'walk'); }
   street.update(dt, elapsed, S.location === 'street');
-  world.background.copy(S.location === 'street' ? tod.sky : new THREE.Color('#0f1016'));
+  if (S.location === 'street') {
+    world.background.copy(street.horizonColor);
+    if (!world.fog) world.fog = new THREE.Fog('#cfe9ff', 45, 150);
+    world.fog.color.copy(street.horizonColor);
+    world.environmentIntensity = 0.25 + (1 - tod.night) * 0.35;
+  } else { world.background.set('#0f1016'); world.fog = null; world.environmentIntensity = 0.35; }
   // Sol siguiendo al jugador para sombras
   const sunBase = S.location === 'street' ? P.pos : new THREE.Vector3(0, 0, 0);
   apt.sun.position.set(sunBase.x + 6, 14, sunBase.z - 10);
@@ -819,7 +973,7 @@ function loop() {
   if (hudT > 0.25) { hudT = 0; if (mode === 'walk' || mode === 'busy') updateHUD(); }
   if (Math.floor(elapsed) % 20 === 0 && !loop._saved) { loop._saved = true; } else if (Math.floor(elapsed) % 20 !== 0) loop._saved = false;
 
-  renderer.render(world, camera);
+  draw(world);
   // Facecam
   if (mode === 'stream' && S.peripherals.webcam) {
     faceT += dt;
